@@ -5,8 +5,12 @@
 		public static Task RunAsync(string[] arguments)
 		{
 			var runnerArgs = new RunnerArguments();
+			return RunAsync(runnerArgs);
+		}
 
-			return new Orchestrator().RunAsync(runnerArgs);
+		public static Task RunAsync(RunnerArguments arguments)
+		{
+			return new Orchestrator().RunAsync(arguments);
 		}
 	}
 }

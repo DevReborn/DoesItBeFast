@@ -1,10 +1,12 @@
-﻿namespace TestLibrary
+﻿using DoesItBeFast.Attributes;
+
+namespace TestLibrary
 {
 	public class TestClass_With3Layers
 	{
-		public string DoAThing()
+		[IsThisFast]
+		public string DoAThing(string text)
 		{
-			var text = "Some Text";
 			var list = new List<int>();
 			foreach(var c in text)
 			{
@@ -15,6 +17,7 @@
 
 		private string ConvertBackToString(List<int> list)
 		{
+			AddCapatalisedVersion(list, 'h');
 			return string.Join("", list.Select(x => char.ConvertFromUtf32(x)));
 		}
 

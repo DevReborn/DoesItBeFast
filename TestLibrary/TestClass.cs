@@ -1,4 +1,6 @@
-﻿namespace TestLibrary
+﻿using DoesItBeFast.Attributes;
+
+namespace TestLibrary
 {
 	public class TestClass
 	{
@@ -11,7 +13,7 @@
 
 		private static string PrivateMethod2(string arg)
 		{
-			return arg;
+			return arg + "stuuff" + arg + "sdgs" + arg + "sdgsh";
 		}
 		private static string PrivateMethod1(string arg)
 		{

@@ -1,4 +1,6 @@
-﻿namespace TestLibrary
+﻿using DoesItBeFast.Attributes;
+
+namespace TestLibrary
 {
 	public class TestClass2
 	{

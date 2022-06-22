@@ -6,8 +6,4 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\DoesItBeFast.Attributes\DoesItBeFast.Attributes.csproj" />
-  </ItemGroup>
-
 </Project>

@@ -92,7 +92,7 @@ namespace DoesItBeFast.Monitoring
 			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Call, method.Module.ImportReference(_datetimeNow)));
 			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Ldsfld, method.Module.ImportReference(monitorType.TimeField)));
 
-			monitoredMethods.Add(calledMethodHash, calledMethod);
+			monitoredMethods.TryAdd(calledMethodHash, calledMethod);
 
 			MonitorMethod(calledMethod.Resolve(), monitorType, monitoredMethods);
 

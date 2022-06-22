@@ -11,16 +11,17 @@ namespace DoesItBeFast.Output
 			var generalTimings = GetGeneralTimings(intepretation);
 
 			var table = new Table("General Statistics");
-			table.AddHeader("Method", "Mean", "Iterations", "Percentage per call", "Percentage per iteration");
+			table.AddHeader("Method", "Mean", "Total", "Calls", "Percentage", "Percentage Per Iteration");
 			foreach (var values in generalTimings)
 			{
 				var row = new Row(table)
 				{
 					new RowCell(values.Method.Name),
 					new RowCell(values.Average),
+					new RowCell(values.Total),
 					new RowCell(values.Count),
-					new RowCell(values.Percentage.ToString("P2"), table.Header?[3], true),
-					new RowCell($"{values.PerIterationPercentage:P2} ({values.PerIterationCount})" , table.Header?[4], true)
+					new RowCell(values.Percentage.ToString("P1"), table.Header?[3], true),
+					new RowCell($"{values.PerIterationPercentage:P1} ({values.PerIterationCount})" , table.Header?[4], true)
 				};
 				table.Add(row);
 			}
@@ -33,7 +34,7 @@ namespace DoesItBeFast.Output
 			var allCalls = new List<CallGraph>();
 			GetCallsRecursively(intepretation.Iterations, allCalls);
 
-			var totalAverage = (long)intepretation.Iterations.Average(x => x.TimeTaken.Ticks);
+			var totalAverage = intepretation.Iterations.Average(x => x.TimeTaken.Ticks);
 
 			return allCalls.GroupBy(x => x.Method).Select(x =>
 			{
@@ -47,8 +48,9 @@ namespace DoesItBeFast.Output
 				{
 					Method = x.Key,
 					Average = perCallAverage,
+					Total = allMethodCalls.TotalPerIteration(),
 					Count = allMethodCalls.Count,
-					Percentage = (double)perCallAverage.Ticks / totalAverage,
+					Percentage = allMethodCalls.Average(x => x.TimeTaken.Ticks) / totalAverage,
 					PerIterationPercentage = perIterationAverage / totalAverage,
 					PerIterationCount = groupedByIteration.Select(x => x.Count()).Distinct().Single()
 				};
@@ -73,5 +75,6 @@ namespace DoesItBeFast.Output
 		public double Percentage { get; set; }
 		public double PerIterationPercentage { get; set; }
 		public int PerIterationCount { get; set; }
+		public TimeSpan Total { get; internal set; }
 	}
 }

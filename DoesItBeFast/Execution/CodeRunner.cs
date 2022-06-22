@@ -32,7 +32,7 @@ namespace DoesItBeFast.Execution
 
 			var iterations = new List<Iteration>();
 
-			for (int i = 0; i < 10; i++)
+			for (int i = 0; i < _codeParams.Iterations + _codeParams.WarmupIterations; i++)
 			{
 				var callingObject = CreateCaller(methodType);
 
@@ -42,7 +42,8 @@ namespace DoesItBeFast.Execution
 				times.Add(DateTime.Now);
 				hashes.Add(-hashCode);
 
-				iterations.Add(new Iteration(hashes.ToList(), times.ToList()));
+				if(i >= _codeParams.WarmupIterations)
+					iterations.Add(new Iteration(hashes.ToList(), times.ToList()));
 
 				hashes.Clear();
 				times.Clear();
