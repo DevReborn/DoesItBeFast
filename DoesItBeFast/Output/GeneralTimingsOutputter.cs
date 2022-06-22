@@ -1,44 +1,31 @@
 ﻿using DoesItBeFast.Interpretation;
+using DoesItBeFast.Output.Core;
 using Mono.Cecil;
 
 namespace DoesItBeFast.Output
 {
-	public class ResultPrinter
+	public class GeneralTimingsOutputter : IResultOutputter
 	{
-		public void Output(ResultIntepretation intepretation)
-		{
-			WriteGeneralTableResults(intepretation);
-		}
-
-		private static void WriteGeneralTableResults(ResultIntepretation intepretation)
+		public async Task OutputAsync(ResultIntepretation intepretation, TextWriter writer)
 		{
 			var generalTimings = GetGeneralTimings(intepretation);
 
-			var table = new Table();
-			var header = new Row(table)
-			{
-				new RowCell("Method"),
-				new RowCell("Mean"),
-				new RowCell("Iterations"),
-				new RowCell("Percentage per call"),
-				new RowCell("Percentage per iteration"),
-			};
-			table.Header = header;
-
+			var table = new Table("General Statistics");
+			table.AddHeader("Method", "Mean", "Iterations", "Percentage per call", "Percentage per iteration");
 			foreach (var values in generalTimings)
 			{
 				var row = new Row(table)
 				{
-					new RowCell(values.Method.Name, header[0]),
-					new RowCell(values.Average, header[1]),
-					new RowCell(values.Count, header[2]),
-					new RowCell(values.Percentage.ToString("P2"), header[3]),
-					new RowCell($"{values.PerIterationPercentage:P2} ({values.PerIterationCount})" , header[4])
+					new RowCell(values.Method.Name),
+					new RowCell(values.Average),
+					new RowCell(values.Count),
+					new RowCell(values.Percentage.ToString("P2"), table.Header?[3], true),
+					new RowCell($"{values.PerIterationPercentage:P2} ({values.PerIterationCount})" , table.Header?[4], true)
 				};
 				table.Add(row);
 			}
 
-			table.Write();
+			await table.WriteAsync(writer);
 		}
 
 		private static IList<GeneralTiming> GetGeneralTimings(ResultIntepretation intepretation)
@@ -51,8 +38,8 @@ namespace DoesItBeFast.Output
 			return allCalls.GroupBy(x => x.Method).Select(x =>
 			{
 				var allMethodCalls = x.ToList();
-				var perCallAverage = TimeSpan.FromTicks((long)allMethodCalls.Average(y => y.TimeTaken.Ticks));
-				var groupedByIteration = allMethodCalls.GroupBy(x => x.Entry);
+				var perCallAverage = allMethodCalls.AverageTime();
+				var groupedByIteration = allMethodCalls.GroupBy(x => x.Entry, ReferenceEqualityComparer.Instance);
 				var sumOfEachIteration = groupedByIteration.Select(x => x.Sum(y => y.TimeTaken.Ticks));
 				var perIterationAverage = sumOfEachIteration.Average();
 
@@ -76,7 +63,6 @@ namespace DoesItBeFast.Output
 				GetCallsRecursively(innerCall, allCalls);
 			}
 		}
-
 	}
 
 	public class GeneralTiming
@@ -85,7 +71,7 @@ namespace DoesItBeFast.Output
 		public TimeSpan Average { get; set; }
 		public int Count { get; set; }
 		public double Percentage { get; set; }
-		public double PerIterationPercentage { get; internal set; }
-		public int PerIterationCount { get; internal set; }
+		public double PerIterationPercentage { get; set; }
+		public int PerIterationCount { get; set; }
 	}
 }

@@ -1,8 +1,6 @@
 ﻿using DoesItBeFast.Execution;
 using DoesItBeFast.Monitoring;
 using Mono.Cecil;
-using System.Collections.Generic;
-using System.Reflection;
 
 namespace DoesItBeFast.Interpretation
 {

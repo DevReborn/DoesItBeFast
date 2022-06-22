@@ -23,6 +23,16 @@ namespace DoesItBeFast.Monitoring
 			var monitorType = CreateMonitoringType(method.Module);
 			var monitoredMethods = new Dictionary<long, MethodReference>();
 
+			MonitorMethod(method, monitorType, monitoredMethods);
+
+			var assembly = method.Module;
+			assembly.Write($"{assembly.Assembly.Name.Name}.updated.dll");
+			var targetAssembly = Assembly.LoadFile(Directory.GetCurrentDirectory() + $"/{assembly.Assembly.Name.Name}.updated.dll");
+			return new MonitoredCode(targetAssembly, monitoredMethods);
+		}
+
+		private void MonitorMethod(MethodDefinition method, MonitorTypeDefintion monitorType, IDictionary<long, MethodReference> monitored)
+		{
 			var body = method.Body;
 			var il = body.GetILProcessor();
 			for (int i = 0; i < body.Instructions.Count; i++)
@@ -33,15 +43,10 @@ namespace DoesItBeFast.Monitoring
 					case Code.Call:
 					case Code.Calli:
 					case Code.Callvirt:
-						i += InjectMonitoringCode(monitoredMethods, monitorType, il, body, (MethodReference)instruction.Operand, i);
+						i += InjectMonitoringCode(monitored, monitorType, il, body, (MethodReference)instruction.Operand, i);
 						break;
 				}
 			}
-
-			var assembly = method.Module;
-			assembly.Write($"{assembly.Assembly.Name.Name}.updated.dll");
-			var targetAssembly = Assembly.LoadFile(Directory.GetCurrentDirectory() + $"/{assembly.Assembly.Name.Name}.updated.dll");
-			return new MonitoredCode(targetAssembly, monitoredMethods);
 		}
 
 		private static MonitorTypeDefintion CreateMonitoringType(ModuleDefinition module)
@@ -88,6 +93,8 @@ namespace DoesItBeFast.Monitoring
 			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Ldsfld, method.Module.ImportReference(monitorType.TimeField)));
 
 			monitoredMethods.Add(calledMethodHash, calledMethod);
+
+			MonitorMethod(calledMethod.Resolve(), monitorType, monitoredMethods);
 
 			return 12;
 		}

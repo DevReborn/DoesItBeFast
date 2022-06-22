@@ -1,5 +1,4 @@
-﻿using DoesItBeFast;
-using DoesItBeFast.Monitoring;
+﻿using DoesItBeFast.Monitoring;
 using System.Reflection;
 
 namespace DoesItBeFast.Execution

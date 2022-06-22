@@ -19,5 +19,24 @@ namespace DoesItBeFast.Interpretation
 
 		public TimeSpan TimeTaken => EndTime - StartTime;
 		public CallGraph Entry => Parent?.Entry ?? this;
+
+		public override bool Equals(object? obj)
+		{
+			return obj is CallGraph graph 
+				&& graph.GetHashCode() == this.GetHashCode();
+		}
+
+		public override int GetHashCode()
+		{
+			unchecked
+			{
+				int hash = 19;
+				foreach (var innerGraph in this)
+				{
+					hash = hash * 31 + innerGraph.GetHashCode();
+				}
+				return HashCode.Combine(Method, hash);
+			}
+		}
 	}
 }
