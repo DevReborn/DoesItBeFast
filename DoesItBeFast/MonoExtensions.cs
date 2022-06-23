@@ -7,7 +7,8 @@ namespace DoesItBeFast
 	{
 		public static bool IsEqual(this MethodReference monoMethod, MethodInfo method)
 		{
-			return method.ToString() == $"{monoMethod.ReturnType} {monoMethod.Name}({string.Join(", ", monoMethod.Parameters.Select(x => x.ParameterType.ToString()))})";
+			return method.ToString() == 
+				$"{(monoMethod.ReturnType.ToString() == "System.Void" ? "Void" : monoMethod.ReturnType.ToString())} {monoMethod.Name}({string.Join(", ", monoMethod.Parameters.Select(x => x.ParameterType.ToString()))})";
 		}
 		public static bool IsEqual(this TypeReference monoType, Type type)
 		{

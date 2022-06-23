@@ -10,9 +10,11 @@ namespace TestLibrary
 			var list = new List<int>();
 			foreach(var c in text)
 			{
+				list.Add(c);
 				ConvertCharacter(list, c);
 			}
-			return ConvertBackToString(list);
+			return text + " add some text";
+			//return ConvertBackToString(list);
 		}
 
 		private string ConvertBackToString(List<int> list)

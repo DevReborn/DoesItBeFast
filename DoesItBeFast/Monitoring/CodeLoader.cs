@@ -43,7 +43,7 @@ namespace DoesItBeFast.Monitoring
 					case Code.Call:
 					case Code.Calli:
 					case Code.Callvirt:
-						i += InjectMonitoringCode(monitored, monitorType, il, body, (MethodReference)instruction.Operand, i);
+						i += WrapAroundMethodCall(monitored, monitorType, il, body, (MethodReference)instruction.Operand, i);
 						break;
 				}
 			}
@@ -64,39 +64,110 @@ namespace DoesItBeFast.Monitoring
 			return new MonitorTypeDefintion(monitorType, hashField, timeField);
 		}
 
-		private int InjectMonitoringCode(IDictionary<long, MethodReference> monitoredMethods,
+		private int WrapAroundMethodCall(IDictionary<long, MethodReference> monitoredMethods,
 			MonitorTypeDefintion monitorType,
 			ILProcessor il,
 			MethodBody callingMethod,
 			MethodReference calledMethod,
 			int index)
 		{
-			if (_parameters.IncludedAssemblies != null
-				&& !_parameters.IncludedAssemblies.Contains(calledMethod.Resolve().Module))
-				return 0;
-
 			var method = callingMethod.Method;
 			long calledMethodHash = calledMethod.GetGenericHashCode();
 
-			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Callvirt, method.Module.ImportReference(monitorType.TimeAddMethod())));
-			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Call, method.Module.ImportReference(_datetimeNow)));
-			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Ldsfld, method.Module.ImportReference(monitorType.TimeField)));
-			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Callvirt, method.Module.ImportReference(monitorType.HashAddMethod())));
-			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Ldc_I8, calledMethodHash));
-			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Ldsfld, method.Module.ImportReference(monitorType.HashField)));
+			InsertMonitoringBeforeCall(monitorType, il, callingMethod, index, method, calledMethodHash);
+			InsertMonitoringAfterCall(monitorType, il, callingMethod, index, method, calledMethodHash);
+			Update(callingMethod.Instructions[0]);
 
+			monitoredMethods.TryAdd(calledMethodHash, calledMethod);
+
+			if (_parameters.IncludedAssemblies.Contains(calledMethod.Resolve().Module))
+			{
+				MonitorMethod(calledMethod.Resolve(), monitorType, monitoredMethods);
+			}
+
+			return 12;
+		}
+
+		private void InsertMonitoringAfterCall(MonitorTypeDefintion monitorType, ILProcessor il, MethodBody callingMethod, int index, MethodDefinition method, long calledMethodHash)
+		{
 			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Callvirt, method.Module.ImportReference(monitorType.HashAddMethod())));
 			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Ldc_I8, -calledMethodHash));
 			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Ldsfld, method.Module.ImportReference(monitorType.HashField)));
 			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Callvirt, method.Module.ImportReference(monitorType.TimeAddMethod())));
 			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Call, method.Module.ImportReference(_datetimeNow)));
 			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Ldsfld, method.Module.ImportReference(monitorType.TimeField)));
+		}
 
-			monitoredMethods.TryAdd(calledMethodHash, calledMethod);
+		private void InsertMonitoringBeforeCall(MonitorTypeDefintion monitorType, ILProcessor il, MethodBody callingMethod,
+			int index, MethodDefinition method, long calledMethodHash)
+		{
+			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Callvirt, method.Module.ImportReference(monitorType.TimeAddMethod())));
+			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Call, method.Module.ImportReference(_datetimeNow)));
+			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Ldsfld, method.Module.ImportReference(monitorType.TimeField)));
+			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Callvirt, method.Module.ImportReference(monitorType.HashAddMethod())));
+			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Ldc_I8, calledMethodHash));
+			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Ldsfld, method.Module.ImportReference(monitorType.HashField)));
+		}
 
-			MonitorMethod(calledMethod.Resolve(), monitorType, monitoredMethods);
+		//private static void InsertBefore(ILProcessor il, Instruction instruction1, Instruction instruction2)
+		//{
+		//	il.InsertBefore(instruction1, instruction2);
+		//	Update(instruction2);
+		//}
 
-			return 12;
+		//private static void InsertAfter(ILProcessor il, Instruction instruction1, Instruction instruction2)
+		//{
+		//	il.InsertAfter(instruction1, instruction2);
+		//	Update(instruction2);
+		//}
+		private static void Update(Instruction instruction)
+		{
+			var inst = instruction;
+			while (inst != null)
+			{
+				inst.Offset = inst.Previous == null ? 0: (inst.Previous.Offset + inst.Previous.GetSize());
+				switch (inst.OpCode.Code)
+				{
+					case Code.Br_S:
+						ConvertShortForm(inst, OpCodes.Br); break;
+					case Code.Brfalse_S:
+						ConvertShortForm(inst, OpCodes.Brfalse); break;
+					case Code.Brtrue_S:
+						ConvertShortForm(inst, OpCodes.Brtrue); break;
+					case Code.Beq_S:
+						ConvertShortForm(inst, OpCodes.Beq); break;
+					case Code.Bge_S:
+						ConvertShortForm(inst, OpCodes.Bge); break;
+					case Code.Bgt_S:
+						ConvertShortForm(inst, OpCodes.Bgt); break;
+					case Code.Ble_S:
+						ConvertShortForm(inst, OpCodes.Ble); break;
+					case Code.Blt_S:
+						ConvertShortForm(inst, OpCodes.Blt); break;
+					case Code.Bne_Un_S:
+						ConvertShortForm(inst, OpCodes.Bne_Un); break;
+					case Code.Bge_Un_S:
+						ConvertShortForm(inst, OpCodes.Bge_Un); break;
+					case Code.Bgt_Un_S:
+						ConvertShortForm(inst, OpCodes.Bgt_Un); break;
+					case Code.Ble_Un_S:
+						ConvertShortForm(inst, OpCodes.Ble_Un); break;
+					case Code.Blt_Un_S:
+						ConvertShortForm(inst, OpCodes.Blt_Un); break;
+				}
+				inst = inst.Next;
+			}
+		}
+
+		private static void ConvertShortForm(Instruction inst, OpCode newCode)
+		{
+			var destination = ((Instruction)inst.Operand).Offset;
+			var source = inst.Offset;
+			var size = destination - (source + inst.GetSize() + 1);
+			if (size > 127 || size < -128)
+			{
+				inst.OpCode = newCode;
+			}
 		}
 	}
 }

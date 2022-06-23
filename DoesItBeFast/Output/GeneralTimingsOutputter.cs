@@ -54,7 +54,7 @@ namespace DoesItBeFast.Output
 					PerIterationPercentage = perIterationAverage / totalAverage,
 					PerIterationCount = groupedByIteration.Select(x => x.Count()).Distinct().Single()
 				};
-			}).ToList();
+			}).OrderByDescending(x => x.PerIterationPercentage).ToList();
 		}
 
 		private static void GetCallsRecursively(IEnumerable<CallGraph> graph, List<CallGraph> allCalls)
