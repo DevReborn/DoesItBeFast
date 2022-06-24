@@ -36,7 +36,10 @@ namespace DoesItBeFast.Monitoring
 		{
 			var body = method.Body;
 			var il = body.GetILProcessor();
-			for (int i = 0; i < body.Instructions.Count; i++)
+
+			InsertMonitoringBeforeCall(monitorType, il, body, 0, method, method.GetGenericHashCode());
+
+			for (int i = 6; i < body.Instructions.Count; i++)
 			{
 				var instruction = body.Instructions[i];
 				switch (instruction.OpCode.Code)
@@ -44,10 +47,15 @@ namespace DoesItBeFast.Monitoring
 					case Code.Call:
 					case Code.Calli:
 					case Code.Callvirt:
+					case Code.Ldftn:
 						i += WrapAroundMethodCall(monitored, monitorType, il, body, (MethodReference)instruction.Operand, i);
 						break;
 				}
 			}
+
+			InsertMonitoringAfterCall(monitorType, il, body, body.Instructions.Count - 1 - 6 - 1, method, method.GetGenericHashCode());
+			UpdateBreakToMethod(body.Instructions, body.Instructions.Last());
+			UpdateShortFormCodes(body.Instructions[0]);
 		}
 
 		private static MonitorTypeDefintion CreateMonitoringType(ModuleDefinition module)
@@ -75,19 +83,38 @@ namespace DoesItBeFast.Monitoring
 			long calledMethodHash = calledMethod.GetGenericHashCode();
 			var method = callingMethod.Method;
 
-			InsertMonitoringBeforeCall(monitorType, il, callingMethod, index, method, calledMethodHash);
-			InsertMonitoringAfterCall(monitorType, il, callingMethod, index, method, calledMethodHash);
-			UpdateBreakToMethod(callingMethod.Instructions, callingMethod.Instructions[index + 6]);
-			UpdateShortFormCodes(callingMethod.Instructions[0]);
-
-			// Only go inside included methods that we havene't visited yet.
-			if (monitoredMethods.TryAdd(calledMethodHash, calledMethod) 
-				&& _parameters.IncludedAssemblies.Contains(calledMethod.Resolve().Module))
+			if(MethodShouldBeMonitored(calledMethod))
 			{
-				MonitorMethod(calledMethod.Resolve(), monitorType, monitoredMethods);
-			}
+				// Wrap around methods that we don't own
+				if (!MethodCanBeEdited(calledMethod))
+				{
+					InsertMonitoringBeforeCall(monitorType, il, callingMethod, index, method, calledMethodHash);
+					InsertMonitoringAfterCall(monitorType, il, callingMethod, index, method, calledMethodHash);
+					UpdateBreakToMethod(callingMethod.Instructions, callingMethod.Instructions[index + 6]);
+					UpdateShortFormCodes(callingMethod.Instructions[0]);
 
-			return 12;
+					monitoredMethods.TryAdd(calledMethodHash, calledMethod);
+
+					return 12;
+				}
+				// Only go inside included methods that we havene't visited yet.
+				else if (monitoredMethods.TryAdd(calledMethodHash, calledMethod))
+				{
+					MonitorMethod(calledMethod.Resolve(), monitorType, monitoredMethods);
+				}
+			}
+			return 0;
+		}
+
+		private bool MethodShouldBeMonitored(MethodReference calledMethod)
+		{
+			return !calledMethod.DeclaringType.FullName.Equals("<PrivateImplementationDetails>");
+		}
+
+		private bool MethodCanBeEdited(MethodReference calledMethod)
+		{
+			return _parameters.EditableAssemblies.Contains(calledMethod.Resolve().Module)
+				&& !calledMethod.DeclaringType.FullName.Equals("<PrivateImplementationDetails>");
 		}
 
 		private void InsertMonitoringAfterCall(MonitorTypeDefintion monitorType, ILProcessor il, MethodBody callingMethod, 
@@ -227,6 +254,7 @@ namespace DoesItBeFast.Monitoring
 					case Code.Ldc_I4_7:
 					case Code.Ldc_I4_8:
 					case Code.Ldc_I4_S:
+					case Code.Ldc_I4:
 					case Code.Ldloc_0:
 					case Code.Ldloc_1:
 					case Code.Ldloc_2:
@@ -239,6 +267,7 @@ namespace DoesItBeFast.Monitoring
 					case Code.Callvirt:
 					case Code.Call:
 					case Code.Add:
+					case Code.Ceq:
 					case Code.Ret:
 					case Code.Dup:
 					case Code.Pop:

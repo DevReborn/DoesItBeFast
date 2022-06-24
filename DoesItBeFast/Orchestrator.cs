@@ -24,7 +24,7 @@ namespace DoesItBeFast
 
 			var codeParams = new CodeParameters(new EntryMethod(entryMethod, runnerArgs.EntryPointOptions.Parameters))
 			{
-				IncludedAssemblies = mainAssembly.Modules,
+				EditableAssemblies = mainAssembly.Modules,
 				Iterations = runnerArgs.Iterations,
 				WarmupIterations = runnerArgs.WarmupIterations
 			};

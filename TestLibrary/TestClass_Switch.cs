@@ -2,18 +2,32 @@
 
 namespace TestLibrary
 {
-	public class TestClass_With3Layers
+	public class TestClass_Switch
 	{
 		//[IsThisFast]
 		public string DoAThing(string text)
 		{
-			var list = new List<int>();
-			foreach(var c in text)
+			switch (text)
 			{
-				list.Add(c);
-				ConvertCharacter(list, c);
+				case "sgsdg":
+					return "fsdgsy";
+				case "sdgsd":
+					return "dfhryd";
+				case "fhdrydj":
+					return "fsdgfhdfdrsy";
+				case "sdsdgsdg":
+					return "fsdgfhdfdrsy";
+				case "sdsg":
+					return "3n46";
+				case "shrtn6n46":
+					return "n346";
+				case "3n4634n6":
+					return "63";
+				case "n346n346m3":
+					return "4n63";
+				default:
+					return "sdgyy";
 			}
-			return ConvertBackToString(list);
 		}
 
 		private string ConvertBackToString(List<int> list)

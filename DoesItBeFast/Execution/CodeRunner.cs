@@ -36,11 +36,7 @@ namespace DoesItBeFast.Execution
 			{
 				var callingObject = CreateCaller(methodType);
 
-				hashes.Add(hashCode);
-				times.Add(DateTime.Now);
 				methodType.Invoke(callingObject, parameters);
-				times.Add(DateTime.Now);
-				hashes.Add(-hashCode);
 
 				if(i >= _codeParams.WarmupIterations)
 					iterations.Add(new Iteration(hashes.ToList(), times.ToList()));
