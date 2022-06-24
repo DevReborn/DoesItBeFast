@@ -1,5 +1,6 @@
 ﻿using Mono.Cecil;
 using Mono.Cecil.Cil;
+using Mono.Collections.Generic;
 using System.Reflection;
 using FieldAttributes = Mono.Cecil.FieldAttributes;
 using MethodBody = Mono.Cecil.Cil.MethodBody;
@@ -71,16 +72,17 @@ namespace DoesItBeFast.Monitoring
 			MethodReference calledMethod,
 			int index)
 		{
-			var method = callingMethod.Method;
 			long calledMethodHash = calledMethod.GetGenericHashCode();
+			var method = callingMethod.Method;
 
 			InsertMonitoringBeforeCall(monitorType, il, callingMethod, index, method, calledMethodHash);
 			InsertMonitoringAfterCall(monitorType, il, callingMethod, index, method, calledMethodHash);
-			Update(callingMethod.Instructions[0]);
+			UpdateBreakToMethod(callingMethod.Instructions, callingMethod.Instructions[index + 6]);
+			UpdateShortFormCodes(callingMethod.Instructions[0]);
 
-			monitoredMethods.TryAdd(calledMethodHash, calledMethod);
-
-			if (_parameters.IncludedAssemblies.Contains(calledMethod.Resolve().Module))
+			// Only go inside included methods that we havene't visited yet.
+			if (monitoredMethods.TryAdd(calledMethodHash, calledMethod) 
+				&& _parameters.IncludedAssemblies.Contains(calledMethod.Resolve().Module))
 			{
 				MonitorMethod(calledMethod.Resolve(), monitorType, monitoredMethods);
 			}
@@ -88,39 +90,29 @@ namespace DoesItBeFast.Monitoring
 			return 12;
 		}
 
-		private void InsertMonitoringAfterCall(MonitorTypeDefintion monitorType, ILProcessor il, MethodBody callingMethod, int index, MethodDefinition method, long calledMethodHash)
+		private void InsertMonitoringAfterCall(MonitorTypeDefintion monitorType, ILProcessor il, MethodBody callingMethod, 
+			int index, MethodDefinition method, long calledMethodHash)
 		{
-			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Callvirt, method.Module.ImportReference(monitorType.HashAddMethod())));
+			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Callvirt, monitorType.HashAddMethod()));
 			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Ldc_I8, -calledMethodHash));
-			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Ldsfld, method.Module.ImportReference(monitorType.HashField)));
-			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Callvirt, method.Module.ImportReference(monitorType.TimeAddMethod())));
+			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Ldsfld, monitorType.HashField));
+			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Callvirt, monitorType.TimeAddMethod()));
 			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Call, method.Module.ImportReference(_datetimeNow)));
-			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Ldsfld, method.Module.ImportReference(monitorType.TimeField)));
+			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Ldsfld, monitorType.TimeField));
 		}
 
 		private void InsertMonitoringBeforeCall(MonitorTypeDefintion monitorType, ILProcessor il, MethodBody callingMethod,
 			int index, MethodDefinition method, long calledMethodHash)
 		{
-			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Callvirt, method.Module.ImportReference(monitorType.TimeAddMethod())));
+			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Callvirt, monitorType.TimeAddMethod()));
 			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Call, method.Module.ImportReference(_datetimeNow)));
-			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Ldsfld, method.Module.ImportReference(monitorType.TimeField)));
-			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Callvirt, method.Module.ImportReference(monitorType.HashAddMethod())));
+			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Ldsfld, monitorType.TimeField));
+			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Callvirt, monitorType.HashAddMethod()));
 			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Ldc_I8, calledMethodHash));
-			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Ldsfld, method.Module.ImportReference(monitorType.HashField)));
+			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Ldsfld, monitorType.HashField));
 		}
 
-		//private static void InsertBefore(ILProcessor il, Instruction instruction1, Instruction instruction2)
-		//{
-		//	il.InsertBefore(instruction1, instruction2);
-		//	Update(instruction2);
-		//}
-
-		//private static void InsertAfter(ILProcessor il, Instruction instruction1, Instruction instruction2)
-		//{
-		//	il.InsertAfter(instruction1, instruction2);
-		//	Update(instruction2);
-		//}
-		private static void Update(Instruction instruction)
+		private static void UpdateShortFormCodes(Instruction instruction)
 		{
 			var inst = instruction;
 			while (inst != null)
@@ -158,7 +150,6 @@ namespace DoesItBeFast.Monitoring
 				inst = inst.Next;
 			}
 		}
-
 		private static void ConvertShortForm(Instruction inst, OpCode newCode)
 		{
 			var destination = ((Instruction)inst.Operand).Offset;
@@ -169,5 +160,99 @@ namespace DoesItBeFast.Monitoring
 				inst.OpCode = newCode;
 			}
 		}
+
+		private void UpdateBreakToMethod(Collection<Instruction> instructions, Instruction calledMethod)
+		{
+			foreach(var inst in instructions)
+			{
+				switch (inst.OpCode.Code)
+				{
+					// Other break methods
+					case Code.Jmp:
+					case Code.Switch:
+					case Code.Leave:
+					case Code.Leave_S:
+						throw new NotImplementedException("Unsupported Opcode: " + inst.OpCode.Code);
+
+					// Supported breaks
+					case Code.Br_S:
+					case Code.Brfalse_S:
+					case Code.Brtrue_S:
+					case Code.Beq_S:
+					case Code.Bge_S:
+					case Code.Bgt_S:
+					case Code.Ble_S:
+					case Code.Blt_S:
+					case Code.Bne_Un_S:
+					case Code.Bge_Un_S:
+					case Code.Bgt_Un_S:
+					case Code.Ble_Un_S:
+					case Code.Blt_Un_S:
+					case Code.Br:
+					case Code.Brfalse:
+					case Code.Brtrue:
+					case Code.Beq:
+					case Code.Bge:
+					case Code.Bgt:
+					case Code.Ble:
+					case Code.Blt:
+					case Code.Bne_Un:
+					case Code.Bge_Un:
+					case Code.Bgt_Un:
+					case Code.Ble_Un:
+					case Code.Blt_Un:
+						if (inst.Operand.Equals(calledMethod))
+							inst.Operand = calledMethod.Previous.Previous.Previous.Previous.Previous.Previous;
+						break;
+
+					// supported
+					case Code.Nop:
+					case Code.Newobj:
+					case Code.Stloc_0:
+					case Code.Stloc_1:
+					case Code.Stloc_2:
+					case Code.Stloc_3:
+					case Code.Stloc_S:
+					case Code.Ldarg_0:
+					case Code.Ldarg_1:
+					case Code.Ldarg_2:
+					case Code.Ldarg_3:
+					case Code.Ldc_I4_0:
+					case Code.Ldc_I4_1:
+					case Code.Ldc_I4_2:
+					case Code.Ldc_I4_3:
+					case Code.Ldc_I4_4:
+					case Code.Ldc_I4_5:
+					case Code.Ldc_I4_6:
+					case Code.Ldc_I4_7:
+					case Code.Ldc_I4_8:
+					case Code.Ldc_I4_S:
+					case Code.Ldloc_0:
+					case Code.Ldloc_1:
+					case Code.Ldloc_2:
+					case Code.Ldloc_3:
+					case Code.Ldloc_S:
+					case Code.Ldstr:
+					case Code.Ldsfld:
+					case Code.Stsfld:
+					case Code.Ldc_I8:
+					case Code.Callvirt:
+					case Code.Call:
+					case Code.Add:
+					case Code.Ret:
+					case Code.Dup:
+					case Code.Pop:
+						break;
+
+					// unsure
+					case Code.Ldarga_S:
+					case Code.Ldftn:
+						break;
+					default:
+						throw new NotImplementedException("Unsupported Opcode: " + inst.OpCode.Code);
+				}
+			}
+		}
+
 	}
 }

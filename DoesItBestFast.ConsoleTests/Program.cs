@@ -9,7 +9,7 @@ await Runner.RunAsync(new RunnerArguments
 	WarmupIterations = 20,
 	EntryPointOptions = new EntryPointOptions
 	{
-		Parameters = new object[] { "Heres a long piece of text to check the speed of this" }
+		Parameters = new object[] { "Hello" }
 	},
 	CallGraphOptions = new CallGraphOutputterOptions
 	{

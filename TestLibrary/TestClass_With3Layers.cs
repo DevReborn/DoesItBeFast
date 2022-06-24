@@ -13,14 +13,13 @@ namespace TestLibrary
 				list.Add(c);
 				ConvertCharacter(list, c);
 			}
-			return text + " add some text";
-			//return ConvertBackToString(list);
+			return ConvertBackToString(list);
 		}
 
 		private string ConvertBackToString(List<int> list)
 		{
 			AddCapatalisedVersion(list, 'h');
-			return string.Join("", list.Select(x => char.ConvertFromUtf32(x)));
+			return string.Join("", list.Select(x => char.ConvertFromUtf32(x)).ToArray());
 		}
 
 		private void ConvertCharacter(List<int> list, char c)
