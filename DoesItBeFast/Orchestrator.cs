@@ -3,6 +3,7 @@ using DoesItBeFast.Execution;
 using DoesItBeFast.Interpretation;
 using DoesItBeFast.Monitoring;
 using DoesItBeFast.Output;
+using DoesItBeFast.Output.Common;
 using DoesItBeFast.Output.Core;
 using Mono.Cecil;
 using System.Reflection;
@@ -33,6 +34,7 @@ namespace DoesItBeFast
 			var interpreted = new ResultInterpreter(codeParams, monitoredCode).Interpret(runResult);
 			await new ResultOutputter(new List<IResultOutputter>
 			{
+				new ExceptionOutputter(),
 				new CallGraphOutputter(runnerArgs.CallGraphOptions),
 				new GeneralTimingsOutputter()
 			}).OutputAsync(interpreted, Console.Out);

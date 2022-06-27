@@ -14,16 +14,18 @@ namespace DoesItBeFast.Interpretation
 		public MethodReference Method { get; }
 		public long Hash { get; }
 		public CallGraph? Parent { get; }
-		public DateTime StartTime { get; set; }
-		public DateTime EndTime { get; internal set; }
+		public DateTime? StartTime { get; set; }
+		public DateTime? EndTime { get; set; }
+		public Exception? Exception { get; set; }
 
-		public TimeSpan TimeTaken => EndTime - StartTime;
+		public TimeSpan TimeTaken => EndTime.Value - StartTime.Value;
 		public CallGraph Entry => Parent?.Entry ?? this;
+
 
 		public override bool Equals(object? obj)
 		{
 			return obj is CallGraph graph 
-				&& graph.GetHashCode() == this.GetHashCode();
+				&& graph.GetHashCode() == GetHashCode();
 		}
 
 		public override int GetHashCode()

@@ -21,7 +21,7 @@ namespace DoesItBeFast.Interpretation
 
 			foreach (var iteration in result.Iterations)
 			{
-				CallGraph? graph = null;
+				CallGraph? currentGraph = null;
 
 				if (iteration.Hashes.Count != iteration.Times.Count)
 					throw new Exception();
@@ -32,22 +32,38 @@ namespace DoesItBeFast.Interpretation
 					var time = iteration.Times[i];
 					if (hash >= 0)
 					{
-						var innnerGraph = PushCall(graph, hash, time);
-						graph = innnerGraph;
+						var innnerGraph = PushCall(currentGraph, hash, time, iteration.Exception);
+						currentGraph = innnerGraph;
 					}
 					else
 					{
-						var outerGraph = PopCall(graph, -hash, time);
+						var outerGraph = PopCall(currentGraph, -hash, time);
 						if (outerGraph is null)
 						{
 							if (i != iteration.Hashes.Count - 1)
 								throw new Exception();
 						}
-						else graph = outerGraph;
+						else currentGraph = outerGraph;
 					}
 				}
 
-				iteratedCallGraphs.Add(graph ?? throw new Exception());
+				if (currentGraph is null)
+					throw new Exception("Somehow the currentGraph was null?");
+
+				if (currentGraph.EndTime == null)
+				{
+					if (iteration.Exception != null)
+					{
+						while (currentGraph.EndTime == null)
+						{
+							currentGraph.EndTime = currentGraph.LastOrDefault()?.EndTime ?? throw new Exception("");
+							currentGraph = currentGraph.Parent ?? currentGraph;
+						}
+					}
+					else throw new Exception("If exception is null, then all the timings weren't gathered for some reason.");
+				}
+
+				iteratedCallGraphs.Add(currentGraph);
 			}
 
 			return new ResultIntepretation(iteratedCallGraphs);
@@ -65,14 +81,15 @@ namespace DoesItBeFast.Interpretation
 			else throw new Exception();
 		}
 
-		private CallGraph PushCall(CallGraph? graph, long hash, DateTime time)
+		private CallGraph PushCall(CallGraph? graph, long hash, DateTime time, Exception? exception)
 		{
 			var methodInfo = FindMethodInfo(hash);
 			if (graph == null)
 			{
 				return new CallGraph(methodInfo, hash, null)
 				{
-					StartTime = time
+					StartTime = time,
+					Exception = exception
 				};
 			}
 			else

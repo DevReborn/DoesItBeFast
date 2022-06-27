@@ -3,6 +3,11 @@ using System.Reflection;
 
 namespace DoesItBeFast.Execution
 {
+	public class Thing<T> : Dictionary<string, T>
+	{
+
+	}
+
 	public class CodeRunner
 	{
 		private CodeParameters _codeParams;
@@ -36,10 +41,18 @@ namespace DoesItBeFast.Execution
 			{
 				var callingObject = CreateCaller(methodType);
 
-				methodType.Invoke(callingObject, parameters);
+				Exception? exception = null;
+				try
+				{
+					methodType.Invoke(callingObject, parameters);
+				}
+				catch (Exception ex) when (ex.InnerException is not InvalidProgramException)
+				{
+					exception = ex.InnerException;
+				}
 
-				if(i >= _codeParams.WarmupIterations)
-					iterations.Add(new Iteration(hashes.ToList(), times.ToList()));
+				if (i >= _codeParams.WarmupIterations)
+					iterations.Add(new Iteration(hashes.ToList(), times.ToList(), exception));
 
 				hashes.Clear();
 				times.Clear();
@@ -48,7 +61,7 @@ namespace DoesItBeFast.Execution
 			return new RunResult(iterations);
 		}
 
-		private object? CreateCaller(MethodInfo methodType)
+		private static object? CreateCaller(MethodInfo methodType)
 		{
 			if (methodType.IsStatic)
 				return null;

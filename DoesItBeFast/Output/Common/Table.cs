@@ -1,4 +1,4 @@
-﻿namespace DoesItBeFast.Output
+﻿namespace DoesItBeFast.Output.Common
 {
 	public class Table : List<Row>
 	{
@@ -32,12 +32,12 @@
 
 		private void Validate()
 		{
-			if(Header != null && !this.All(x => x.Count == Header.Count))
+			if (Header != null && !this.All(x => x.Count == Header.Count))
 			{
 				throw new Exception();
-			} 
-			else if (this.Select(x => x.Count).Distinct().Count() != 1) 
-			{ 
+			}
+			else if (this.Select(x => x.Count).Distinct().Count() != 1)
+			{
 				throw new Exception();
 			}
 			else if (Count == 0)
@@ -91,7 +91,7 @@
 				var length = columnLengths[i] + 2 + 1;
 				var rowCell = row[i];
 				var cellText = rowCell.Text;
-				if(rowCell.AlignRight) await writer.WriteAsync("| " + cellText.PadLeft(length - 3, ' ') + " ");
+				if (rowCell.AlignRight) await writer.WriteAsync("| " + cellText.PadLeft(length - 3, ' ') + " ");
 				else await writer.WriteAsync($"| {cellText}".PadRight(length, ' '));
 			}
 			await writer.WriteLineAsync('|');

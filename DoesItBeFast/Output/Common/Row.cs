@@ -1,4 +1,4 @@
-﻿namespace DoesItBeFast.Output
+﻿namespace DoesItBeFast.Output.Common
 {
 	public class Row : List<RowCell>
 	{

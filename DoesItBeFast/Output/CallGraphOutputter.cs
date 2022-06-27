@@ -1,4 +1,5 @@
 ﻿using DoesItBeFast.Interpretation;
+using DoesItBeFast.Output.Common;
 using DoesItBeFast.Output.Core;
 using Mono.Cecil;
 
@@ -13,21 +14,38 @@ namespace DoesItBeFast.Output
 			_options = options;
 		}
 
-		public async Task OutputAsync(ResultIntepretation intepretation, TextWriter writer)
+		public async Task<bool> OutputAsync(ResultIntepretation intepretation, TextWriter writer)
 		{
-			var iterations = intepretation.Iterations;
-			var distinctInterpretations = iterations.Distinct().Count();
+			var distinctInterpretations = intepretation.Iterations
+				.GroupBy(x => x).ToList();
 
-			if (distinctInterpretations != 1)
-				throw new Exception();
+			if (distinctInterpretations.Count > 1)
+			{
+				// TODO: link to github for info
+				await writer.WriteLineAsync("2 distinct call graphs were detected.");
+			}
 
+			for (int i = 0; i < distinctInterpretations.Count; i++)
+			{
+				var iterations = distinctInterpretations[i];
+				var table = CreateCallGraphTable(iterations.ToList());
+				await table.WriteAsync(writer);
+				if (i < distinctInterpretations.Count - 1)
+					await writer.WriteLineAsync();
+			}
+
+			return true;
+		}
+
+		private Table CreateCallGraphTable(IReadOnlyList<CallGraph> iterations)
+		{
 			var timings = new List<CallGraphTiming>();
 			GetTiming(timings, iterations, 0);
-			await RecursivelyGetCallGraphTimings(timings, iterations, 1);
+			RecursivelyGetCallGraphTimings(timings, iterations, 1);
 
 			var table = new Table("Call Graph");
 			table.AddHeader("Method", "Mean", "Total", "Calls");
-			foreach(var timing in timings)
+			foreach (var timing in timings)
 			{
 				string methodName = $"`-> {timing.Method.Name}";
 				table.Add(new Row(table)
@@ -38,10 +56,11 @@ namespace DoesItBeFast.Output
 					new RowCell(timing.Count),
 				});
 			}
-			await table.WriteAsync(writer);
+
+			return table;
 		}
 
-		private async Task RecursivelyGetCallGraphTimings(List<CallGraphTiming> timings, 
+		private void RecursivelyGetCallGraphTimings(List<CallGraphTiming> timings, 
 			IReadOnlyList<CallGraph> iterations, int depth)
 		{
 			var visitedGraphs = new HashSet<CallGraph>();
@@ -63,13 +82,13 @@ namespace DoesItBeFast.Output
 					}
 
 					GetTiming(timings, innerIterationsMerged, depth);
-					await RecursivelyGetCallGraphTimings(timings, innerIterationsMerged, depth + 1);
+					RecursivelyGetCallGraphTimings(timings, innerIterationsMerged, depth + 1);
 				}
 				else
 				{
 					var innerIterations = iterations.Select(x => x[i]).ToList();
 					GetTiming(timings, innerIterations, depth);
-					await RecursivelyGetCallGraphTimings(timings, innerIterations, depth + 1);
+					RecursivelyGetCallGraphTimings(timings, innerIterations, depth + 1);
 				}
 			}
 		}

@@ -1,4 +1,5 @@
 ﻿using DoesItBeFast.Interpretation;
+using DoesItBeFast.Output.Common;
 using DoesItBeFast.Output.Core;
 using Mono.Cecil;
 
@@ -6,7 +7,7 @@ namespace DoesItBeFast.Output
 {
 	public class GeneralTimingsOutputter : IResultOutputter
 	{
-		public async Task OutputAsync(ResultIntepretation intepretation, TextWriter writer)
+		public async Task<bool> OutputAsync(ResultIntepretation intepretation, TextWriter writer)
 		{
 			var generalTimings = GetGeneralTimings(intepretation);
 
@@ -27,6 +28,7 @@ namespace DoesItBeFast.Output
 			}
 
 			await table.WriteAsync(writer);
+			return true;
 		}
 
 		private static IList<GeneralTiming> GetGeneralTimings(ResultIntepretation intepretation)

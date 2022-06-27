@@ -12,50 +12,124 @@ namespace DoesItBeFast.Monitoring
 	{
 		private readonly CodeParameters _parameters;
 		private readonly MethodInfo _datetimeNow;
+		private readonly MethodDefinition _entryMethod;
+		private readonly MonitorTypeDefintion _monitorType;
+		private readonly IDictionary<long, MethodReference> _monitoredMethods;
 
 		public CodeLoader(CodeParameters parameters)
 		{
 			_parameters = parameters;
 			_datetimeNow = typeof(DateTime)?.GetProperty("Now")?.GetGetMethod() ?? throw new Exception();
+			_entryMethod = _parameters.EntryMethod.Method;
+			_monitorType = CreateMonitoringType(_entryMethod.Module);
+			_monitoredMethods = new Dictionary<long, MethodReference>();
 		}
 		public MonitoredCode Load()
 		{
-			var method = _parameters.EntryMethod.Method;
-			var monitorType = CreateMonitoringType(method.Module);
-			var monitoredMethods = new Dictionary<long, MethodReference>();
+			MonitorMethod(_entryMethod);
 
-			MonitorMethod(method, monitorType, monitoredMethods);
-
-			var assembly = method.Module;
+			var assembly = _entryMethod.Module;
 			assembly.Write($"{assembly.Assembly.Name.Name}.updated.dll");
 			var targetAssembly = Assembly.LoadFile(Directory.GetCurrentDirectory() + $"/{assembly.Assembly.Name.Name}.updated.dll");
-			return new MonitoredCode(targetAssembly, monitoredMethods);
+			return new MonitoredCode(targetAssembly, new Dictionary<long, MethodReference>(_monitoredMethods));
 		}
 
-		private void MonitorMethod(MethodDefinition method, MonitorTypeDefintion monitorType, IDictionary<long, MethodReference> monitored)
+		private void MonitorMethod(MethodDefinition method)
 		{
 			var body = method.Body;
 			var il = body.GetILProcessor();
+			long methodHash = method.GetGenericHashCode();
+			var instructions = body.Instructions;
+			var handlers = new List<ExceptionHandler>();
 
-			InsertMonitoringBeforeCall(monitorType, il, body, 0, method, method.GetGenericHashCode());
+			var extra = InsertMonitoringBeforeCall(il, body, 0, methodHash);
 
-			for (int i = 6; i < body.Instructions.Count; i++)
+			for (int i = extra; i < instructions.Count; i++)
 			{
-				var instruction = body.Instructions[i];
+				var instruction = instructions[i];
 				switch (instruction.OpCode.Code)
 				{
 					case Code.Call:
 					case Code.Calli:
 					case Code.Callvirt:
 					case Code.Ldftn:
-						i += WrapAroundMethodCall(monitored, monitorType, il, body, (MethodReference)instruction.Operand, i);
+						i += WrapAroundMethodCall(il, body, (MethodReference)instruction.Operand, i);
+						break;
+					case Code.Throw:
+						i += InsertMonitoringBeforeThrow(method, body, il, i, handlers);
+						break;
+					case Code.Ret:
+						i += InsertMonitoringAfterCall(il, body, i - 1, methodHash);
 						break;
 				}
 			}
 
-			InsertMonitoringAfterCall(monitorType, il, body, body.Instructions.Count - 1 - 6 - 1, method, method.GetGenericHashCode());
-			UpdateBreakToMethod(body.Instructions, body.Instructions.Last());
-			UpdateShortFormCodes(body.Instructions[0]);
+			UpdateExceptionHandlerStart(body.ExceptionHandlers, instructions[0], il);
+			UpdateExceptionHandlerEnd(body.ExceptionHandlers, instructions.Last());
+			UpdateBreakToMethod(instructions, instructions.Last());
+			UpdateShortFormCodes(instructions[0]);
+		}
+
+		private void UpdateExceptionHandlerStart(IList<ExceptionHandler> handlers, Instruction instruction, ILProcessor il)
+		{
+			if (handlers.Count == 0)
+				return;
+
+			var current = instruction;
+			while(current != null)
+			{
+				var handler = handlers.SingleOrDefault(x => x.HandlerStart.Equals(current));
+				if (handler != null)
+				{
+					InsertMonitoringAtHandler(handler, il);
+				}
+				current = current.Next;
+			}
+		}
+
+		private int InsertMonitoringAtHandler(ExceptionHandler handler, ILProcessor il)
+		{
+			var newStart = il.Create(OpCodes.Ldsfld, _monitorType.HashField);
+			var start = handler.HandlerStart;
+			il.InsertBefore(start, newStart);
+			il.InsertBefore(start, il.Create(OpCodes.Dup));
+			il.InsertBefore(start, il.Create(OpCodes.Callvirt, _monitorType.HashCountMethod()));
+			il.InsertBefore(start, il.Create(OpCodes.Ldc_I4_M1));
+			il.InsertBefore(start, il.Create(OpCodes.Add));
+			il.InsertBefore(start, il.Create(OpCodes.Callvirt, _monitorType.HashRemoveAtMethod()));
+
+			il.InsertBefore(start, il.Create(OpCodes.Ldsfld, _monitorType.TimeField));
+			il.InsertBefore(start, il.Create(OpCodes.Dup));
+			il.InsertBefore(start, il.Create(OpCodes.Callvirt, _monitorType.TimeCountMethod()));
+			il.InsertBefore(start, il.Create(OpCodes.Ldc_I4_M1));
+			il.InsertBefore(start, il.Create(OpCodes.Add));
+			il.InsertBefore(start, il.Create(OpCodes.Callvirt, _monitorType.TimeRemoveAtMethod()));
+			handler.HandlerStart = newStart;
+			handler.TryEnd = newStart;
+			return 12;
+		}
+
+		private int InsertMonitoringBeforeThrow(MethodDefinition method, MethodBody body, 
+			ILProcessor il, int i, List<ExceptionHandler> handlers)
+		{
+			var handler = body.ExceptionHandlers.SingleOrDefault(x => IsThrowInsideHandler(x, body.Instructions[i]));
+			if (handler != null)
+			{
+				handlers.Add(handler);
+			} 
+			return InsertMonitoringAfterCall(il, body, i - 1, method.GetGenericHashCode());
+		}
+
+		private bool IsThrowInsideHandler(ExceptionHandler handler, Instruction instruction)
+		{
+			var current = handler.TryStart;
+			while(current != null && current != handler.TryEnd)
+			{
+				if (current == instruction)
+					return true;
+				current = current.Next;
+			}
+			return false;
 		}
 
 		private static MonitorTypeDefintion CreateMonitoringType(ModuleDefinition module)
@@ -73,34 +147,31 @@ namespace DoesItBeFast.Monitoring
 			return new MonitorTypeDefintion(monitorType, hashField, timeField);
 		}
 
-		private int WrapAroundMethodCall(IDictionary<long, MethodReference> monitoredMethods,
-			MonitorTypeDefintion monitorType,
-			ILProcessor il,
+		private int WrapAroundMethodCall(ILProcessor il,
 			MethodBody callingMethod,
 			MethodReference calledMethod,
 			int index)
 		{
 			long calledMethodHash = calledMethod.GetGenericHashCode();
-			var method = callingMethod.Method;
 
 			if(MethodShouldBeMonitored(calledMethod))
 			{
 				// Wrap around methods that we don't own
 				if (!MethodCanBeEdited(calledMethod))
 				{
-					InsertMonitoringBeforeCall(monitorType, il, callingMethod, index, method, calledMethodHash);
-					InsertMonitoringAfterCall(monitorType, il, callingMethod, index, method, calledMethodHash);
-					UpdateBreakToMethod(callingMethod.Instructions, callingMethod.Instructions[index + 6]);
+					var before = InsertMonitoringBeforeCall(il, callingMethod, index, calledMethodHash);
+					var after = InsertMonitoringAfterCall(il, callingMethod, index + before, calledMethodHash);
+					UpdateBreakToMethod(callingMethod.Instructions, callingMethod.Instructions[index + before]);
 					UpdateShortFormCodes(callingMethod.Instructions[0]);
 
-					monitoredMethods.TryAdd(calledMethodHash, calledMethod);
+					_monitoredMethods.TryAdd(calledMethodHash, calledMethod);
 
-					return 12;
+					return before + after;
 				}
 				// Only go inside included methods that we havene't visited yet.
-				else if (monitoredMethods.TryAdd(calledMethodHash, calledMethod))
+				else if (_monitoredMethods.TryAdd(calledMethodHash, calledMethod))
 				{
-					MonitorMethod(calledMethod.Resolve(), monitorType, monitoredMethods);
+					MonitorMethod(calledMethod.Resolve());
 				}
 			}
 			return 0;
@@ -117,26 +188,28 @@ namespace DoesItBeFast.Monitoring
 				&& !calledMethod.DeclaringType.FullName.Equals("<PrivateImplementationDetails>");
 		}
 
-		private void InsertMonitoringAfterCall(MonitorTypeDefintion monitorType, ILProcessor il, MethodBody callingMethod, 
-			int index, MethodDefinition method, long calledMethodHash)
+		private int InsertMonitoringAfterCall(ILProcessor il, MethodBody callingMethod, 
+			int index, long calledMethodHash)
 		{
-			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Callvirt, monitorType.HashAddMethod()));
-			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Ldc_I8, -calledMethodHash));
-			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Ldsfld, monitorType.HashField));
-			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Callvirt, monitorType.TimeAddMethod()));
-			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Call, method.Module.ImportReference(_datetimeNow)));
-			il.InsertAfter(callingMethod.Instructions[index + 6], il.Create(OpCodes.Ldsfld, monitorType.TimeField));
+			il.InsertAfter(callingMethod.Instructions[index], il.Create(OpCodes.Callvirt, _monitorType.HashAddMethod()));
+			il.InsertAfter(callingMethod.Instructions[index], il.Create(OpCodes.Ldc_I8, -calledMethodHash));
+			il.InsertAfter(callingMethod.Instructions[index], il.Create(OpCodes.Ldsfld, _monitorType.HashField));
+			il.InsertAfter(callingMethod.Instructions[index], il.Create(OpCodes.Callvirt, _monitorType.TimeAddMethod()));
+			il.InsertAfter(callingMethod.Instructions[index], il.Create(OpCodes.Call, _entryMethod.Module.ImportReference(_datetimeNow)));
+			il.InsertAfter(callingMethod.Instructions[index], il.Create(OpCodes.Ldsfld, _monitorType.TimeField));
+			return 6;
 		}
 
-		private void InsertMonitoringBeforeCall(MonitorTypeDefintion monitorType, ILProcessor il, MethodBody callingMethod,
-			int index, MethodDefinition method, long calledMethodHash)
+		private int InsertMonitoringBeforeCall(ILProcessor il, MethodBody callingMethod,
+			int index, long calledMethodHash)
 		{
-			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Callvirt, monitorType.TimeAddMethod()));
-			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Call, method.Module.ImportReference(_datetimeNow)));
-			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Ldsfld, monitorType.TimeField));
-			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Callvirt, monitorType.HashAddMethod()));
+			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Callvirt, _monitorType.TimeAddMethod()));
+			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Call, _entryMethod.Module.ImportReference(_datetimeNow)));
+			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Ldsfld, _monitorType.TimeField));
+			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Callvirt, _monitorType.HashAddMethod()));
 			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Ldc_I8, calledMethodHash));
-			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Ldsfld, monitorType.HashField));
+			il.InsertBefore(callingMethod.Instructions[index], il.Create(OpCodes.Ldsfld, _monitorType.HashField));
+			return 6;
 		}
 
 		private static void UpdateShortFormCodes(Instruction instruction)
@@ -144,7 +217,7 @@ namespace DoesItBeFast.Monitoring
 			var inst = instruction;
 			while (inst != null)
 			{
-				inst.Offset = inst.Previous == null ? 0: (inst.Previous.Offset + inst.Previous.GetSize());
+				inst.Offset = inst.Previous == null ? 0 : (inst.Previous.Offset + inst.Previous.GetSize());
 				switch (inst.OpCode.Code)
 				{
 					case Code.Br_S:
@@ -173,6 +246,8 @@ namespace DoesItBeFast.Monitoring
 						ConvertShortForm(inst, OpCodes.Ble_Un); break;
 					case Code.Blt_Un_S:
 						ConvertShortForm(inst, OpCodes.Blt_Un); break;
+					case Code.Leave_S:
+						ConvertShortForm(inst, OpCodes.Leave); break;
 				}
 				inst = inst.Next;
 			}
@@ -188,7 +263,7 @@ namespace DoesItBeFast.Monitoring
 			}
 		}
 
-		private void UpdateBreakToMethod(Collection<Instruction> instructions, Instruction calledMethod)
+		private static void UpdateBreakToMethod(Collection<Instruction> instructions, Instruction instructionToBreakTo)
 		{
 			foreach(var inst in instructions)
 			{
@@ -197,8 +272,6 @@ namespace DoesItBeFast.Monitoring
 					// Other break methods
 					case Code.Jmp:
 					case Code.Switch:
-					case Code.Leave:
-					case Code.Leave_S:
 						throw new NotImplementedException("Unsupported Opcode: " + inst.OpCode.Code);
 
 					// Supported breaks
@@ -228,8 +301,14 @@ namespace DoesItBeFast.Monitoring
 					case Code.Bgt_Un:
 					case Code.Ble_Un:
 					case Code.Blt_Un:
-						if (inst.Operand.Equals(calledMethod))
-							inst.Operand = calledMethod.Previous.Previous.Previous.Previous.Previous.Previous;
+						// Not sure if i have to do extra due to exception handling?
+					case Code.Leave:
+					case Code.Leave_S:
+						if (inst.Operand.Equals(instructionToBreakTo))
+							inst.Operand = instructionToBreakTo.Previous.Previous.Previous.Previous.Previous.Previous;
+						if (inst.Operand is Instruction instruction && instruction.OpCode.Code == Code.Throw)
+							throw new NotImplementedException();
+							//inst.Operand = instruction.Previous.Previous.Previous.Previous.Previous.Previous;
 						break;
 
 					// supported
@@ -244,6 +323,7 @@ namespace DoesItBeFast.Monitoring
 					case Code.Ldarg_1:
 					case Code.Ldarg_2:
 					case Code.Ldarg_3:
+					case Code.Ldnull:
 					case Code.Ldc_I4_0:
 					case Code.Ldc_I4_1:
 					case Code.Ldc_I4_2:
@@ -253,6 +333,7 @@ namespace DoesItBeFast.Monitoring
 					case Code.Ldc_I4_6:
 					case Code.Ldc_I4_7:
 					case Code.Ldc_I4_8:
+					case Code.Ldc_I4_M1:
 					case Code.Ldc_I4_S:
 					case Code.Ldc_I4:
 					case Code.Ldloc_0:
@@ -264,9 +345,13 @@ namespace DoesItBeFast.Monitoring
 					case Code.Ldsfld:
 					case Code.Stsfld:
 					case Code.Ldc_I8:
+					case Code.Conv_I8:
+					case Code.Conv_U2:
 					case Code.Callvirt:
 					case Code.Call:
 					case Code.Add:
+					case Code.Rem:
+					case Code.Cgt_Un:
 					case Code.Ceq:
 					case Code.Ret:
 					case Code.Dup:
@@ -275,7 +360,9 @@ namespace DoesItBeFast.Monitoring
 
 					// unsure
 					case Code.Ldarga_S:
+					case Code.Ldloca_S:
 					case Code.Ldftn:
+					case Code.Throw:
 						break;
 					default:
 						throw new NotImplementedException("Unsupported Opcode: " + inst.OpCode.Code);
@@ -283,5 +370,22 @@ namespace DoesItBeFast.Monitoring
 			}
 		}
 
+		private static void UpdateExceptionHandlerEnd(Collection<ExceptionHandler> exceptionHandlers, Instruction instructionAfterEx)
+		{
+			foreach (var handler in exceptionHandlers)
+			{
+				switch (handler.HandlerType)
+				{
+					case ExceptionHandlerType.Catch:
+						if (handler.HandlerEnd.Equals(instructionAfterEx))
+							handler.HandlerEnd = instructionAfterEx.Previous.Previous.Previous.Previous.Previous.Previous;
+						break;
+					case ExceptionHandlerType.Filter:
+					case ExceptionHandlerType.Finally:
+					case ExceptionHandlerType.Fault:
+						throw new NotImplementedException();
+				}
+			}
+		}
 	}
 }

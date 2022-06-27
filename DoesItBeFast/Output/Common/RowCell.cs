@@ -1,12 +1,12 @@
-﻿namespace DoesItBeFast.Output
+﻿namespace DoesItBeFast.Output.Common
 {
 	public class RowCell
 	{
-		public RowCell(object text) 
+		public RowCell(object text)
 			: this(text, null)
 		{
 		}
-		public RowCell(object text, RowCell? header) 
+		public RowCell(object text, RowCell? header)
 			: this(text, header, text is int)
 		{
 		}
